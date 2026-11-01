@@ -1,0 +1,55 @@
+"""Simple trajectory helpers: joint-space interpolation, straight lines in
+Cartesian space, and a function that turns a Cartesian path into joint angles."""
+import numpy as np
+
+
+def time_scaling(n, profile="quintic"):
+    """Values going 0 -> 1 over n samples.
+
+    cubic and quintic both start and stop with zero velocity, which avoids
+    jerky starts. Quintic also has zero acceleration at the ends.
+    """
+    tau = np.linspace(0.0, 1.0, n)
+    if profile == "linear":
+        return tau
+    if profile == "cubic":
+        return 3 * tau ** 2 - 2 * tau ** 3
+    if profile == "quintic":
+        return 10 * tau ** 3 - 15 * tau ** 4 + 6 * tau ** 5
+    raise ValueError(f"unknown profile '{profile}'")
+
+
+def joint_trajectory(q_start, q_end, n=50, profile="quintic"):
+    """Move every joint from q_start to q_end together. Returns an (n, dof) array."""
+    q_start = np.asarray(q_start, dtype=float)
+    q_end = np.asarray(q_end, dtype=float)
+    s = time_scaling(n, profile)
+    return q_start + np.outer(s, q_end - q_start)
+
+
+def line_path(p_start, p_end, n=50, profile="quintic"):
+    """Straight line between two poses. Works for (x, y, phi) or (x, y, z, phi)."""
+    p_start = np.asarray(p_start, dtype=float)
+    p_end = np.asarray(p_end, dtype=float)
+    s = time_scaling(n, profile)
+    return p_start + np.outer(s, p_end - p_start)
+
+
+def path_to_joints(path, ik_func, **ik_kwargs):
+    """Run IK on every pose in the path.
+
+    ik_func is something like arm_4dof.inverse_kinematics.inverse_kinematics.
+    np.unwrap stops the base angle from jumping by 2*pi between samples.
+    """
+    joints = np.array([ik_func(*pose, **ik_kwargs) for pose in path])
+    return np.unwrap(joints, axis=0)
+
+
+def waypoint_path(waypoints, n_per_segment=40, profile="quintic"):
+    """Chain several straight segments together into one path."""
+    pieces = []
+    for a, b in zip(waypoints[:-1], waypoints[1:]):
+        seg = line_path(a, b, n_per_segment, profile)
+        # skip the first point of later segments, it duplicates the previous end
+        pieces.append(seg if not pieces else seg[1:])
+    return np.vstack(pieces)
