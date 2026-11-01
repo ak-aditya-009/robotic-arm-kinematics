@@ -1,0 +1,49 @@
+""Forward kinematics for the 4-DOF arm.
+
+Joint 1 spins the whole arm around the vertical axis. Joints 2-4 are pitch
+joints that all bend in the same vertical plane. The DH table lives in
+docs/dh_parameters.md.
+"""
+import numpy as np
+from src.config import LINKS_4DOF, D1_4DOF
+from src.utils.dh import chain
+
+
+def dh_table(q, d1=D1_4DOF, links=LINKS_4DOF):
+    q1, q2, q3, q4 = q
+    l2, l3, l4 = links
+    return [
+        (q1, d1, 0.0, np.pi / 2),
+        (q2, 0.0, l2, 0.0),
+        (q3, 0.0, l3, 0.0),
+        (q4, 0.0, l4, 0.0),
+    ]
+
+
+def transform(q, d1=D1_4DOF, links=LINKS_4DOF):
+    """Full 4x4 homogeneous transform from the base to the tool tip."""
+    return chain(dh_table(q, d1, links))
+
+
+def forward_kinematics(q, d1=D1_4DOF, links=LINKS_4DOF):
+    """Return [x, y, z, phi] where phi = q2 + q3 + q4 is the tool pitch."""
+    T = transform(q, d1, links)
+    phi = q[1] + q[2] + q[3]
+    return np.array([T[0, 3], T[1, 3], T[2, 3], phi])
+
+
+def joint_positions(q, d1=D1_4DOF, links=LINKS_4DOF):
+    """3D coordinates of base, shoulder, elbow, wrist and tip (for plotting)."""
+    q1, q2, q3, q4 = q
+    pts = [np.zeros(3), np.array([0.0, 0.0, d1])]
+    r, z = 0.0, d1
+    for l, a in zip(links, np.cumsum([q2, q3, q4])):
+        r += l * np.cos(a)
+        z += l * np.sin(a)
+        pts.append(np.array([r * np.cos(q1), r * np.sin(q1), z]))
+    return np.array(pts)
+
+
+if __name__ == "__main__":
+    q = np.radians([20, 50, -60, -30])
+    print("pose [x, y, z, phi]:", forward_kinematics(q))
